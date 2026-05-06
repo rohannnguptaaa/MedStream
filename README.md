@@ -19,7 +19,7 @@ Clinical Agent (Ollama)  ← up to 4 concurrent inferences
 
 | Layer | Technology | Role |
 |---|---|---|
-| Ingestion | Redpanda (Kafka) | 5-partition vitals stream at 50ms intervals, 10 patients |
+| Ingestion | Redpanda (Kafka) | 5-partition vitals stream, partitioned by patient ID |
 | Speed filter | Redis (Lua script) | Atomic sliding-window threshold check |
 | AI triage | Ollama `llama3.2:1b` | Scores alert 1–10, suppresses false alarms |
 | Storage | MongoDB | Full audit trail of every triage decision |
@@ -34,14 +34,14 @@ Clinical Agent (Ollama)  ← up to 4 concurrent inferences
 ```bash
 # 1. Clone and enter the project
 git clone <repo-url>
-cd Proj
+cd MedStream
 
 # 2. Copy environment file
 cp .env.example .env
 
-# 3. Pull the AI model (one-time, ~800 MB)
-#    Do this before starting the stack so the agent doesn't time out waiting.
-docker compose run --rm ollama ollama pull llama3.2:1b
+# 3. Start the stack, then pull the AI model (one-time, ~800 MB)
+docker compose up -d
+docker exec medstream-ollama-1 ollama pull llama3.2:1b
 ```
 
 ## Running
@@ -52,7 +52,7 @@ docker compose run --rm ollama ollama pull llama3.2:1b
 docker compose up --build
 ```
 
-**Demo mode** — same as above but also starts the vitals simulator (5 fake patients at 100ms intervals):
+**Demo mode** — same as above but also starts the vitals simulator (10 patients at 50ms intervals):
 
 ```bash
 docker compose --profile demo up --build
@@ -61,7 +61,7 @@ docker compose --profile demo up --build
 **Start the simulator on an already-running stack:**
 
 ```bash
-docker compose run --rm producer
+docker compose --profile demo up -d producer
 ```
 
 | URL | Purpose |
@@ -115,7 +115,7 @@ Up to `agent_thread_workers` (default: 4) Ollama inferences run concurrently per
 **Dead Letter Queue** — if a triage event fails processing, it is retried in-place up to `max_retries` times (default: 3) without requiring a restart. After all retries are exhausted the message is published to `triage-dead-letter` with full error context and its offset is committed, unblocking the rest of the queue. Failed messages can be inspected with:
 
 ```bash
-docker exec -it proj-redpanda-1 rpk topic consume triage-dead-letter
+docker exec -it medstream-redpanda-1 rpk topic consume triage-dead-letter
 ```
 
 **Scoring guide**
