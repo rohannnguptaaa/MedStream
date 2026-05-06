@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clinical Alerting System</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #080d18;
+      --surface:  #0f1829;
+      --border:   #1a2f4a;
+      --muted:    #334155;
+      --text:     #c8d8e8;
+      --dim:      #64748b;
+      --blue:     #38bdf8;
+      --green:    #22c55e;
+      --amber:    #f59e0b;
+      --red:      #ef4444;
+    }
+
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 52px 1fr;
+      grid-template-columns: 260px 1fr;
+      overflow: hidden;
+    }
+
+    /* ── Header ──────────────────────────────────────────── */
+    header {
+      grid-column: 1 / -1;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 12px;
+    }
+
+    .ws-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--red);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .ws-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+    header h1 {
+      font-size: 13px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      color: #e2e8f0;
+    }
+
+    #ws-label {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--dim);
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────── */
+    aside {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+
+    .sidebar-section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--dim);
+      margin-bottom: 10px;
+    }
+
+    /* Metrics grid */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .metric-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 8px;
+      text-align: center;
+    }
+    .metric-value {
+      font-size: 22px;
+      font-weight: bold;
+      color: var(--blue);
+      line-height: 1;
+    }
+    .metric-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .supp-bar {
+      height: 5px;
+      background: var(--border);
+      border-radius: 3px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    .supp-fill {
+      height: 100%;
+      background: var(--green);
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.6s ease;
+    }
+    .supp-caption {
+      font-size: 10px;
+      color: var(--dim);
+      margin-top: 5px;
+      text-align: right;
+    }
+
+    /* Patient buttons */
+    .patient-btn {
+      display: block;
+      width: 100%;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: #94a3b8;
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+      font-size: 12px;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .patient-btn:hover  { border-color: var(--blue); color: var(--text); }
+    .patient-btn.active { border-color: var(--blue); color: var(--blue); background: #0a1929; }
+
+    /* ── Main panels ─────────────────────────────────────── */
+    main {
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      overflow: hidden;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel:last-child { border-bottom: none; }
+
+    .panel-header {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--dim);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-badge {
+      background: var(--muted);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 10px;
+      min-width: 20px;
+      text-align: center;
+    }
+
+    .feed {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+
+    /* ── Alert cards ─────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      color: var(--muted);
+      padding: 32px 0;
+      font-size: 11px;
+    }
+
+    .alert-card {
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      border-left: 4px solid var(--muted);
+      background: var(--surface);
+      animation: slide-in 0.25s ease;
+    }
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-critical  { border-color: var(--red);   background: #130808; }
+    .card-warning   { border-color: var(--amber);  background: #130e04; }
+    .card-suppressed{ border-color: var(--muted);  opacity: 0.65; }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 7px;
+    }
+
+    .card-patient { font-weight: bold; font-size: 13px; }
+
+    .score-badge {
+      font-size: 11px;
+      font-weight: bold;
+      padding: 2px 9px;
+      border-radius: 10px;
+    }
+    .badge-critical  { background: var(--red);   color: #fff; }
+    .badge-warning   { background: var(--amber);  color: #000; }
+    .badge-ok        { background: var(--muted);  color: #94a3b8; }
+
+    .vitals-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 6px;
+    }
+    .vital { display: flex; flex-direction: column; }
+    .vital-label { font-size: 9px; text-transform: uppercase; color: var(--muted); }
+    .vital-value { font-size: 14px; font-weight: bold; color: #94a3b8; }
+    .vital-value.bad { color: var(--red); }
+
+    .reasoning {
+      font-size: 11px;
+      color: var(--dim);
+      font-style: italic;
+      line-height: 1.5;
+      margin-bottom: 4px;
+    }
+
+    .card-time { font-size: 10px; color: var(--muted); }
+
+    /* scrollbar */
+    .feed::-webkit-scrollbar { width: 4px; }
+    .feed::-webkit-scrollbar-track { background: transparent; }
+    .feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<header>
+  <div class="ws-dot" id="ws-dot"></div>
+  <h1>CLINICAL ALERTING SYSTEM</h1>
+  <span id="ws-label">Connecting…</span>
+</header>
+
+<!-- ── Sidebar ─────────────────────────────────────────────── -->
+<aside>
+
+  <div>
+    <div class="sidebar-section-title">Suppression Rate · 24 h</div>
+    <div class="metric-grid">
+      <div class="metric-box">
+        <div class="metric-value" id="m-total">—</div>
+        <div class="metric-label">Total</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-value" id="m-critical" style="color:var(--red)">—</div>
+        <div class="metric-label">Critical</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-value" id="m-suppressed" style="color:var(--green)">—</div>
+        <div class="metric-label">Suppressed</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-value" id="m-rate" style="color:var(--green)">—</div>
+        <div class="metric-label">Rate</div>
+      </div>
+    </div>
+    <div class="supp-bar"><div class="supp-fill" id="supp-fill"></div></div>
+    <div class="supp-caption" id="supp-caption"></div>
+  </div>
+
+  <div>
+    <div class="sidebar-section-title">Patients</div>
+    <button class="patient-btn" onclick="loadPatient('P001')">P001</button>
+    <button class="patient-btn" onclick="loadPatient('P002')">P002</button>
+    <button class="patient-btn" onclick="loadPatient('P003')">P003</button>
+    <button class="patient-btn" onclick="loadPatient('P004')">P004</button>
+    <button class="patient-btn" onclick="loadPatient('P005')">P005</button>
+  </div>
+
+</aside>
+
+<!-- ── Main ────────────────────────────────────────────────── -->
+<main>
+
+  <div class="panel">
+    <div class="panel-header">
+      Live · Critical Alerts
+      <span class="panel-badge" id="live-count">0</span>
+    </div>
+    <div class="feed" id="live-feed">
+      <div class="empty-state">Waiting for critical alerts (Score &gt; 7)…</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header" id="history-header">
+      Patient History
+    </div>
+    <div class="feed" id="history-feed">
+      <div class="empty-state">Select a patient from the sidebar.</div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  const LIMITS = {
+    heart_rate:  [50, 100],
+    spo2:        [94, 100],
+    bp_systolic: [80, 140],
+  };
+
+  function isAbnormal(key, val) {
+    const [lo, hi] = LIMITS[key] ?? [null, null];
+    return lo !== null && (val < lo || val > hi);
+  }
+
+  function cardClass(score)  {
+    if (score >= 8) return 'card-critical';
+    if (score >= 5) return 'card-warning';
+    return 'card-suppressed';
+  }
+
+  function badgeClass(score) {
+    if (score >= 8) return 'badge-critical';
+    if (score >= 5) return 'badge-warning';
+    return 'badge-ok';
+  }
+
+  function fmtTime(raw) {
+    const d = typeof raw === 'number' ? new Date(raw * 1000) : new Date(raw);
+    return isNaN(d) ? '—' : d.toLocaleTimeString();
+  }
+
+  function vitalEl(label, value, key) {
+    const bad = isAbnormal(key, value);
+    return `<div class="vital">
+      <span class="vital-label">${label}</span>
+      <span class="vital-value ${bad ? 'bad' : ''}">${value}</span>
+    </div>`;
+  }
+
+  function renderCard(alert) {
+    const tv    = alert.trigger_vitals ?? {};
+    const score = alert.assessment?.criticality_score ?? 0;
+    const time  = fmtTime(alert.created_at ?? alert.trigger_timestamp);
+
+    return `
+      <div class="alert-card ${cardClass(score)}">
+        <div class="card-header">
+          <span class="card-patient">${tv.patient_id ?? '—'}</span>
+          <span class="score-badge ${badgeClass(score)}">Score ${score}/10</span>
+        </div>
+        <div class="vitals-row">
+          ${vitalEl('HR',   tv.heart_rate?.toFixed(0) + ' bpm',  'heart_rate')}
+          ${vitalEl('SpO2', tv.spo2?.toFixed(1) + '%',           'spo2')}
+          ${vitalEl('BP',   tv.bp_systolic?.toFixed(0) + ' mmHg','bp_systolic')}
+          ${vitalEl('SQI',  tv.signal_quality_index?.toFixed(2), '__none__')}
+        </div>
+        <div class="reasoning">${alert.assessment?.reasoning ?? ''}</div>
+        <div class="card-time">${time}</div>
+      </div>`;
+  }
+
+  // ── Metrics ──────────────────────────────────────────────────────────────────
+
+  async function fetchMetrics() {
+    try {
+      const d   = await fetch('/metrics').then(r => r.json());
+      const pct = Math.round((d.suppression_rate ?? 0) * 100);
+      document.getElementById('m-total').textContent      = d.total_alerts      ?? 0;
+      document.getElementById('m-critical').textContent   = d.critical_alerts   ?? 0;
+      document.getElementById('m-suppressed').textContent = d.suppressed_alerts ?? 0;
+      document.getElementById('m-rate').textContent       = pct + '%';
+      document.getElementById('supp-fill').style.width    = pct + '%';
+      document.getElementById('supp-caption').textContent =
+        pct + '% of alerts suppressed by AI';
+    } catch (_) {}
+  }
+
+  fetchMetrics();
+  setInterval(fetchMetrics, 10_000);
+
+  // ── Patient history ───────────────────────────────────────────────────────────
+
+  let activePatient = null;
+
+  async function loadPatient(id) {
+    activePatient = id;
+    document.querySelectorAll('.patient-btn')
+      .forEach(b => b.classList.toggle('active', b.textContent.trim() === id));
+    document.getElementById('history-header').textContent = `Patient History · ${id}`;
+    document.getElementById('history-feed').innerHTML =
+      '<div class="empty-state">Loading…</div>';
+
+    try {
+      const alerts = await fetch(`/alerts/${id}?limit=25`).then(r => r.json());
+      const feed   = document.getElementById('history-feed');
+      feed.innerHTML = alerts.length
+        ? alerts.map(renderCard).join('')
+        : '<div class="empty-state">No alerts recorded for this patient.</div>';
+    } catch (e) {
+      document.getElementById('history-feed').innerHTML =
+        `<div class="empty-state">Error: ${e.message}</div>`;
+    }
+  }
+
+  // ── WebSocket live feed ───────────────────────────────────────────────────────
+
+  const MAX_LIVE   = 30;
+  let liveCount    = 0;
+  let liveSeeded   = false;
+
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws    = new WebSocket(`${proto}://${location.host}/ws/alerts`);
+    const dot   = document.getElementById('ws-dot');
+    const label = document.getElementById('ws-label');
+
+    ws.onopen = () => {
+      dot.classList.add('on');
+      label.textContent = 'Connected';
+    };
+
+    ws.onmessage = ({ data }) => {
+      const alert = JSON.parse(data);
+      const feed  = document.getElementById('live-feed');
+
+      if (!liveSeeded) { feed.innerHTML = ''; liveSeeded = true; }
+
+      feed.insertAdjacentHTML('afterbegin', renderCard(alert));
+      liveCount++;
+      document.getElementById('live-count').textContent = liveCount;
+
+      // Trim oldest cards to keep DOM lean
+      const cards = feed.querySelectorAll('.alert-card');
+      if (cards.length > MAX_LIVE) cards[cards.length - 1].remove();
+
+      // Refresh history panel if the alert belongs to the selected patient
+      if (activePatient && alert.trigger_vitals?.patient_id === activePatient) {
+        loadPatient(activePatient);
+      }
+    };
+
+    ws.onclose = () => {
+      dot.classList.remove('on');
+      label.textContent = 'Reconnecting…';
+      setTimeout(connectWS, 3000);
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  connectWS();
+</script>
+</body>
+</html>
