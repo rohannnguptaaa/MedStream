@@ -1,0 +1,166 @@
+version: "3.8"
+
+# Shared environment injected into every Python service.
+# Docker Compose reads OLLAMA_MODEL from .env automatically.
+x-python-env: &python-env
+  KAFKA_BOOTSTRAP: redpanda:29092
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  MONGO_URI: mongodb://mongodb:27017
+  OLLAMA_HOST: http://ollama:11434
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+
+# Base definition reused by all four Python services.
+x-python-base: &python-base
+  build: .
+  restart: unless-stopped
+  environment:
+    <<: *python-env
+  depends_on:
+    redpanda:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    mongodb:
+      condition: service_healthy
+    redpanda-init:
+      condition: service_completed_successfully
+
+services:
+
+  # ── Infrastructure ────────────────────────────────────────────────────────────
+
+  redpanda:
+    image: redpandadata/redpanda:v23.3.1
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+    ports:
+      - "9092:9092"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info --brokers localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  redpanda-init:
+    image: redpandadata/redpanda:v23.3.1
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "rpk topic create vitals-raw --partitions 5 --brokers redpanda:29092 || true;
+       rpk topic create triage-investigation --partitions 5 --brokers redpanda:29092 || true;
+       rpk topic create triage-dead-letter --brokers redpanda:29092 || true;
+       echo 'Topics ready.'"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: clinical_alerts
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  # ── Python services ───────────────────────────────────────────────────────────
+
+  producer:
+    <<: *python-base
+    command: python -m producer.vitals_generator
+    profiles: ["demo"]
+
+  sentinel:
+    <<: *python-base
+    command: python -m sentinel.worker
+
+  agent:
+    <<: *python-base
+    command: python -m agent.worker
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_started
+
+  api:
+    <<: *python-base
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+
+  # ── Observability ─────────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - sentinel
+      - agent
+      - api
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  redpanda-data:
+  redis-data:
+  mongo-data:
+  ollama-data:
+  grafana-data:
