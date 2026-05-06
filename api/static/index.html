@@ -301,11 +301,7 @@
 
   <div>
     <div class="sidebar-section-title">Patients</div>
-    <button class="patient-btn" onclick="loadPatient('P001')">P001</button>
-    <button class="patient-btn" onclick="loadPatient('P002')">P002</button>
-    <button class="patient-btn" onclick="loadPatient('P003')">P003</button>
-    <button class="patient-btn" onclick="loadPatient('P004')">P004</button>
-    <button class="patient-btn" onclick="loadPatient('P005')">P005</button>
+    <div id="patient-list"></div>
   </div>
 
 </aside>
@@ -413,6 +409,21 @@
 
   fetchMetrics();
   setInterval(fetchMetrics, 10_000);
+
+  // ── Patient list (dynamic from /admin/baselines) ──────────────────────────
+
+  async function loadPatientList() {
+    try {
+      const baselines = await fetch('/admin/baselines').then(r => r.json());
+      const list = document.getElementById('patient-list');
+      list.innerHTML = baselines
+        .sort((a, b) => a.patient_id.localeCompare(b.patient_id))
+        .map(b => `<button class="patient-btn" onclick="loadPatient('${b.patient_id}')">${b.patient_id}</button>`)
+        .join('');
+    } catch (_) {}
+  }
+
+  loadPatientList();
 
   // ── Patient history ───────────────────────────────────────────────────────────
 
